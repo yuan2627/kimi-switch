@@ -14,7 +14,7 @@ pub struct BlobMetadata {
     pub primary_id: Option<String>,
     /// 展示 label（如 email / user_id）。
     pub label: Option<String>,
-    /// 跨主键去重用的稳定键（如 Beta chatgpt_account_id）；无则 None。
+    /// 跨主键去重用的稳定键（如某些客户端的 account id 字段）；无则 None。
     pub dedup_key: Option<String>,
     /// 额外落进 registry.toml `extra` 的字段（provider 私有，如会员档/额度用 header）。
     pub extra: serde_json::Map<String, serde_json::Value>,
@@ -51,7 +51,7 @@ pub trait FileBlobRuntime: Send + Sync + 'static {
         "blob"
     }
     /// registry.toml `extra` 里存跨主键去重键的字段名。默认 "dedup_key"；
-    /// Beta 覆盖为 "chatgpt_account_id" 以兼容此次迁移前已存在的账号数据
+    /// 可覆盖为旧字段名（如 "legacy_account_id"）以兼容迁移前已存在的账号数据
     /// （迁移前的 `registry.toml` 只有这个键名，没有通用的 "dedup_key"）。
     fn dedup_extra_key(&self) -> &'static str {
         "dedup_key"
