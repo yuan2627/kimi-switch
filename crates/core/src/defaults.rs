@@ -1,0 +1,148 @@
+//! 产品级**编译期**默认常量集中地。
+//!
+//! 运行时实际生效的值来自 [`crate::settings::current`]，由 `config.toml` 覆盖。
+//! 这里的常量只是 `Settings::default()` 的 fallback，缺字段 / 配置文件缺失时使用。
+//!
+//! 命名约定：`<DOMAIN>_<NAME>`。
+//! 单位：百分比统一 0.0~1.0 或 0~100，命名里点明；时间统一毫秒。
+
+// ============================================================
+// 自动切换
+// ============================================================
+
+/// AutoSwap 触发阈值（0.0~1.0）。
+///
+/// `kimi-switch` 默认入口与 `kimi-switchd` daemon 均使用此值；
+/// 任一窗口 used/limit ≥ 此值即触发切换。
+///
+/// 配套不变量：AGENTS.md #5。
+pub const AUTO_SWAP_THRESHOLD: f64 = 0.99;
+
+/// 自动切换冷却期（毫秒）。
+///
+/// 一个账号刚被切走后，在此期间不会再被选为切换目标，避免抖动。
+/// daemon (M4) 使用。
+pub const AUTO_SWAP_COOLDOWN_MS: i64 = 5 * 60 * 1000;
+
+/// 新激活账号的「沉淀宽限期」（毫秒）。
+///
+/// 账号刚成为 active 后（无论手动 `swap` 还是自动切换），在此窗口内不因
+/// 「quota 仍在 loading」或「quota 拉取失败」这类**不确定状态**把它自动切走。
+/// 目的：避免手动切到某账号后，仅仅因为冷启动 quota 还没拉回来，就被自动决策
+/// （CLI 默认入口或 daemon）在同一瞬间顶掉，违背用户显式选择。
+///
+/// 不影响「已明确耗尽 / 达到 threshold」的确定性切换——那是基于真实额度数据，
+/// 即使在宽限期内也应尊重。窗口需覆盖一次冷 quota 查询（含重试退避）的耗时。
+pub const AUTO_SWAP_SETTLE_GRACE_MS: i64 = 60 * 1000;
+
+// ============================================================
+// 额度状态视觉阈值（仅影响展示，不影响 AutoSwap 决策）
+// ============================================================
+
+/// Provider 将 [`crate::QuotaStatus::Warn`] 标记给 quota 的阈值（百分比 0~100）。
+///
+/// 用途：CLI 展示着色 / 用户感知接近上限。**不耦合 [`AUTO_SWAP_THRESHOLD`]**。
+/// 设低于 AutoSwap 阈值，让用户在自动切换发生之前就能看到 WARN。
+pub const QUOTA_WARN_PCT: f64 = 90.0;
+
+/// `QuotaStatus::Exhausted` 的阈值（百分比 0~100）。通常就是 100。
+pub const QUOTA_EXHAUSTED_PCT: f64 = 100.0;
+
+/// Codex usage 实时接口字段漂移时，允许使用旧版本地缓存的最长时间。
+///
+/// 仅作为兼容兜底；过期缓存不参与展示/自动切换，避免 stale quota 误导策略。
+pub const CODEX_USAGE_CACHE_MAX_AGE_MS: i64 = 10 * 60 * 1000;
+
+/// 单次 quota 查询 attempt 的超时（毫秒）。
+///
+/// CLI 与 daemon 都通过统一重试包装查询 quota。单次 attempt 超过此值会被取消，并按
+/// [`QUOTA_FETCH_RETRIES`] 决定是否重试。
+///
+/// 必须盖住 Codex active 的官方 app-server 会话上限（20s），以及 Kimi active 401 自愈
+/// （`kimi --version` + 持锁刷新 + 重查）。过短会把慢但正常的查询取消成可重试 timeout，
+/// 最终显示 `timeout after N attempts` 并回落旧缓存。
+pub const QUOTA_FETCH_TIMEOUT_MS: u64 = 20_000;
+
+/// quota 查询失败后的重试次数。
+///
+/// 这里表示「首次请求之外」额外再试几次。默认 1 次；401/403/429 不会重试。
+/// 单次 attempt 已按慢路径（Codex app-server / Kimi 自愈）拉到 20s，不宜再叠多次重试。
+pub const QUOTA_FETCH_RETRIES: u32 = 1;
+
+/// quota 查询首次重试前等待多久（毫秒）。
+///
+/// 后续按 `base * 2^(attempt-1)` 指数退避，给瞬时网络错误恢复窗口。
+pub const QUOTA_FETCH_RETRY_DELAY_MS: u64 = 500;
+
+/// 同一账号两次真实 quota 查询的最小间隔（毫秒），默认 90s。
+///
+/// Anthropic 的 usage 端点限流极严（实测每账号约每分钟才放行 1 次）。kimi-switch 的 CLI 每次运行
+/// 与 daemon 每轮都会把所有账号一起查，极易并发打爆该端点触发 429。设此下限后，缓存比它新就
+/// 直接复用、不再请求；取 90s（> daemon 60s 轮询）使 daemon 也会跳过部分轮次，把每账号请求频率
+/// 稳定压到 ~90s 一次。daemon 与 CLI 共用 `quota_cache.json`，节流对两条路径同时生效。
+pub const QUOTA_MIN_REFRESH_INTERVAL_MS: u64 = 90_000;
+
+/// quota 查询失败后的退避上限（毫秒），默认 15 分钟。
+///
+/// 成功结果会写进缓存并被 [`QUOTA_MIN_REFRESH_INTERVAL_MS`] 节流；**失败结果没有缓存**，
+/// 因此在引入退避之前，一个持续查不出的账号会被 daemon 每轮（60s）无节制地重查，
+/// 请求频率反而高于健康账号，把 usage 端点的限流桶打空 → 429 蔓延到其他账号。
+/// 退避从 `min_refresh_interval_ms` 起按连续失败次数翻倍，封顶到这里。
+pub const QUOTA_FAILURE_BACKOFF_MAX_MS: u64 = 900_000;
+
+// ============================================================
+// Token 生命周期
+// ============================================================
+
+/// Token 距离过期还有多少毫秒内视为「需要预刷新」。
+///
+/// Claude `activate` 路径会在此窗口内尝试 best-effort 刷新；daemon 后台保活也用同一窗口。
+pub const REFRESH_SLACK_MS: i64 = 5 * 60 * 1000;
+
+// ============================================================
+// daemon 周期
+// ============================================================
+
+/// daemon 轮询周期（毫秒）。M4 使用。活跃时（最近有客户端在跑）的频率。
+pub const DAEMON_POLL_INTERVAL_MS: u64 = 60 * 1000;
+
+/// daemon 「空闲」判定阈值（毫秒）。
+///
+/// provider 的 `client_targets().probe_path` mtime 距今超过此值 → 视为用户没在用 AI，
+/// daemon 退到 [`DAEMON_IDLE_POLL_INTERVAL_MS`] 节奏，减少无意义的 quota 请求。
+pub const DAEMON_IDLE_THRESHOLD_MS: i64 = 30 * 60 * 1000;
+
+/// daemon 空闲时的轮询周期（毫秒）。
+///
+/// 由 [`DAEMON_IDLE_THRESHOLD_MS`] 判定空闲后启用；一旦 probe 文件再次变动，
+/// 下一轮立刻回到 [`DAEMON_POLL_INTERVAL_MS`]。
+pub const DAEMON_IDLE_POLL_INTERVAL_MS: u64 = 30 * 60 * 1000;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Codex active 走官方 app-server（内部 SESSION_TIMEOUT=20s）；Kimi active 401 自愈还要
+    /// 先跑 `kimi --version`（实测数秒）再持锁刷新。外层 per-attempt 超时若短于这条路径，
+    /// 会把尚在进行的查询取消成可重试的 timeout，最终刷出 `timeout after N attempts` + 旧缓存。
+    /// 断言的两侧都是常量，走 `const {}` 让它在编译期成立，同时避开 clippy
+    /// `assertions_on_constants`（CI 用 `-D warnings`，普通 `assert!` 会直接编译失败）。
+    #[test]
+    fn quota_fetch_timeout_covers_codex_app_server_and_kimi_recovery() {
+        const CODEX_APP_SERVER_SESSION_TIMEOUT_MS: u64 = 20_000;
+        const {
+            assert!(
+                QUOTA_FETCH_TIMEOUT_MS >= CODEX_APP_SERVER_SESSION_TIMEOUT_MS,
+                "QUOTA_FETCH_TIMEOUT_MS must be >= Codex app-server session timeout (20s)"
+            );
+        }
+        // 单次 attempt 已拉长后，不宜再叠默认 5 次重试（最坏会拖到两分钟以上，且 Codex
+        // 会反复拉起 app-server）。
+        const {
+            assert!(
+                QUOTA_FETCH_RETRIES <= 2,
+                "QUOTA_FETCH_RETRIES too high for the current per-attempt timeout"
+            );
+        }
+    }
+}

@@ -1,0 +1,23 @@
+[package]
+name = "kimi-switch-gui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "kimi-switch GUI: manage multiple Kimi Code accounts"
+repository.workspace = true
+homepage.workspace = true
+
+[[bin]]
+name = "kimi-switch"
+path = "src/main.rs"
+
+[dependencies]
+kimi-switch-core.workspace = true
+kimi-switch-kimi.workspace = true
+
+anyhow.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+eframe = "0.31"

@@ -1,0 +1,11 @@
+/target
+**/*.rs.bk
+*.pdb
+
+# 凭证与用户数据绝不允许进仓库
+credentials.json
+registry.toml
+removed.json
+quota_cache.json
+audit.log
+.env
