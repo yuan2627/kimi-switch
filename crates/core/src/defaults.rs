@@ -76,7 +76,7 @@ pub const QUOTA_FETCH_RETRY_DELAY_MS: u64 = 500;
 
 /// 同一账号两次真实 quota 查询的最小间隔（毫秒），默认 90s。
 ///
-/// Anthropic 的 usage 端点限流极严（实测每账号约每分钟才放行 1 次）。kimi-switch 的 CLI 每次运行
+/// 上游 usage 端点限流极严（实测每账号约每分钟才放行 1 次）。kimi-switch 的 CLI 每次运行
 /// 与 daemon 每轮都会把所有账号一起查，极易并发打爆该端点触发 429。设此下限后，缓存比它新就
 /// 直接复用、不再请求；取 90s（> daemon 60s 轮询）使 daemon 也会跳过部分轮次，把每账号请求频率
 /// 稳定压到 ~90s 一次。daemon 与 CLI 共用 `quota_cache.json`，节流对两条路径同时生效。

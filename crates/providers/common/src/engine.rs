@@ -669,7 +669,7 @@ mod tests {
             BlobMetadata {
                 primary_id: v.get("uid").and_then(|x| x.as_str()).map(String::from),
                 // "label" 字段独立可控，缺省时回退到 uid（沿用既有测试的默认行为）；
-                // "dedup" 字段模拟去重键（如 Beta 的 chatgpt_account_id）。
+                // "dedup" 字段模拟去重键（如某些客户端的 account id 字段）。
                 label: v
                     .get("label")
                     .and_then(|x| x.as_str())
@@ -820,7 +820,7 @@ mod tests {
 
     // --- Finding 1 回归：账号匹配不应比迁移前的 Beta 实现窄 ---
 
-    /// 回归测试：迁移前已存在的账号（`extra` 只有旧键名 "chatgpt_account_id"，没有通用
+    /// 回归测试：迁移前已存在的账号（`extra` 只有旧键名 "legacy_account_id"，没有通用
     /// "dedup_key"）在 primary_id 发生轮换（如 Beta account_key 轮换）后，
     /// capture-on-leave 仍必须能靠去重键（用 runtime 声明的 extra 键名读取）找到 owner，
     /// 否则该账号的 store 副本会停留在旧 refresh token 上，导致下次切回后报
@@ -831,16 +831,16 @@ mod tests {
     fn capture_finds_owner_via_dedup_key_under_runtime_specific_extra_key_name() {
         let tmp = tempfile::tempdir().unwrap();
         let runtime =
-            FakeRuntime::with_dedup_extra_key(tmp.path().join("home"), "chatgpt_account_id");
+            FakeRuntime::with_dedup_extra_key(tmp.path().join("home"), "legacy_account_id");
         let p = provider_with(tmp.path(), runtime);
         fs::create_dir_all(p.home()).unwrap();
 
         // 模拟迁移前已存在的账号：id = 旧 account_key，label = 邮箱，
-        // extra 只有旧键名 "chatgpt_account_id"，没有 "dedup_key"。
+        // extra 只有旧键名 "legacy_account_id"，没有 "dedup_key"。
         let mut account = fake_account("old-key");
         account.label = "user@example.com".into();
         account.extra.insert(
-            "chatgpt_account_id".into(),
+            "legacy_account_id".into(),
             serde_json::Value::String("stable-id".into()),
         );
         p.test_registry_upsert(account).unwrap();
