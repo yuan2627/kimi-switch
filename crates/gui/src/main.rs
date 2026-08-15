@@ -95,13 +95,18 @@ fn main() -> eframe::Result<()> {
             .with_icon(app_icon()),
         ..Default::default()
     };
+    // 启动主题：`KIMI_SWITCH_THEME=light` 浅色，默认深色。
+    let dark = !matches!(
+        std::env::var("KIMI_SWITCH_THEME").as_deref(),
+        Ok("light")
+    );
     eframe::run_native(
         "Kimi 换号器",
         options,
-        Box::new(|cc| {
+        Box::new(move |cc| {
             load_cjk_fonts(&cc.egui_ctx);
-            apply_theme(&cc.egui_ctx, true);
-            Ok(Box::new(GuiApp::new(cc.egui_ctx.clone())))
+            apply_theme(&cc.egui_ctx, dark);
+            Ok(Box::new(GuiApp::new(cc.egui_ctx.clone(), dark)))
         }),
     )
 }
@@ -620,7 +625,7 @@ struct GuiApp {
 }
 
 impl GuiApp {
-    fn new(ctx: egui::Context) -> Self {
+    fn new(ctx: egui::Context, dark_mode: bool) -> Self {
         let (req_tx, req_rx) = channel::<Request>();
         let (resp_tx, resp_rx) = channel::<Response>();
         std::thread::Builder::new()
@@ -638,7 +643,7 @@ impl GuiApp {
             pending_delete: None,
             rename_target: None,
             auth_dialog: None,
-            dark_mode: true,
+            dark_mode,
         }
     }
 
