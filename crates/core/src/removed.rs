@@ -105,19 +105,19 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("removed.json");
         let mut removed = RemovedAccounts::load(&path);
-        assert!(!removed.contains("cursor", "auth0|user_a"));
+        assert!(!removed.contains("gamma", "auth0|user_a"));
 
-        removed.add("cursor", "auth0|user_a").unwrap();
-        assert!(removed.contains("cursor", "auth0|user_a"));
-        assert!(!removed.contains("cursor", "auth0|user_b"));
+        removed.add("gamma", "auth0|user_a").unwrap();
+        assert!(removed.contains("gamma", "auth0|user_a"));
+        assert!(!removed.contains("gamma", "auth0|user_b"));
 
         let reloaded = RemovedAccounts::load(&path);
-        assert!(reloaded.contains("cursor", "auth0|user_a"));
+        assert!(reloaded.contains("gamma", "auth0|user_a"));
 
         let mut removed = reloaded;
-        removed.clear("cursor", "auth0|user_a").unwrap();
-        assert!(!removed.contains("cursor", "auth0|user_a"));
+        removed.clear("gamma", "auth0|user_a").unwrap();
+        assert!(!removed.contains("gamma", "auth0|user_a"));
         let reloaded = RemovedAccounts::load(&path);
-        assert!(!reloaded.contains("cursor", "auth0|user_a"));
+        assert!(!reloaded.contains("gamma", "auth0|user_a"));
     }
 }

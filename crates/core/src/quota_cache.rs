@@ -239,7 +239,7 @@ mod tests {
 
     fn sample_quota() -> Quota {
         Quota {
-            provider: "claude".into(),
+            provider: "alpha".into(),
             account_id: AccountId("a@x.com".into()),
             window: QuotaWindow::SevenDay,
             used: 10,
@@ -253,18 +253,18 @@ mod tests {
     #[test]
     fn fresh_returns_only_within_window() {
         let mut cache = QuotaCache::default();
-        cache.set("claude", "a@x.com", vec![sample_quota()]);
+        cache.set("alpha", "a@x.com", vec![sample_quota()]);
         // 刚写入 → 90s 窗口内算新鲜。
         assert!(cache
-            .fresh("claude", "a@x.com", std::time::Duration::from_secs(90))
+            .fresh("alpha", "a@x.com", std::time::Duration::from_secs(90))
             .is_some());
         // 0 窗口 → 任何缓存都视为不新鲜,强制重新查询。
         assert!(cache
-            .fresh("claude", "a@x.com", std::time::Duration::from_secs(0))
+            .fresh("alpha", "a@x.com", std::time::Duration::from_secs(0))
             .is_none());
         // 未知账号 → None。
         assert!(cache
-            .fresh("claude", "b@x.com", std::time::Duration::from_secs(90))
+            .fresh("alpha", "b@x.com", std::time::Duration::from_secs(90))
             .is_none());
     }
 
@@ -275,33 +275,33 @@ mod tests {
         let mut cache = QuotaCache::default();
 
         // 首次失败 → 退避 base，窗口内跳过查询。
-        cache.record_failure("claude", "a@x.com", "429 rate limited");
+        cache.record_failure("alpha", "a@x.com", "429 rate limited");
         let hit = cache
-            .in_failure_backoff("claude", "a@x.com", base, cap)
+            .in_failure_backoff("alpha", "a@x.com", base, cap)
             .unwrap();
         assert_eq!(hit.consecutive, 1);
         assert_eq!(hit.error, "429 rate limited");
 
         // 第 3 次失败 → 退避 4*base；把 failed_at 拨到 3*base 之前仍在窗口内。
-        cache.record_failure("claude", "a@x.com", "429 rate limited");
-        cache.record_failure("claude", "a@x.com", "429 rate limited");
-        cache.failures.get_mut("claude::a@x.com").unwrap().failed_at =
+        cache.record_failure("alpha", "a@x.com", "429 rate limited");
+        cache.record_failure("alpha", "a@x.com", "429 rate limited");
+        cache.failures.get_mut("alpha::a@x.com").unwrap().failed_at =
             Utc::now() - Duration::seconds(270);
         assert!(cache
-            .in_failure_backoff("claude", "a@x.com", base, cap)
+            .in_failure_backoff("alpha", "a@x.com", base, cap)
             .is_some());
 
         // 超过封顶时长 → 放行重查。
-        cache.failures.get_mut("claude::a@x.com").unwrap().failed_at =
+        cache.failures.get_mut("alpha::a@x.com").unwrap().failed_at =
             Utc::now() - Duration::seconds(1000);
         assert!(cache
-            .in_failure_backoff("claude", "a@x.com", base, cap)
+            .in_failure_backoff("alpha", "a@x.com", base, cap)
             .is_none());
 
         // 查成功一次即清零，不再退避。
-        cache.set("claude", "a@x.com", vec![sample_quota()]);
+        cache.set("alpha", "a@x.com", vec![sample_quota()]);
         assert!(cache
-            .in_failure_backoff("claude", "a@x.com", base, cap)
+            .in_failure_backoff("alpha", "a@x.com", base, cap)
             .is_none());
     }
 
@@ -313,49 +313,49 @@ mod tests {
 
         for _ in 0..5 {
             cache.record_failure(
-                "claude",
+                "alpha",
                 "a@x.com",
                 "quota fetch: usage returned 401 Unauthorized",
             );
         }
-        cache.failures.get_mut("claude::a@x.com").unwrap().failed_at =
+        cache.failures.get_mut("alpha::a@x.com").unwrap().failed_at =
             Utc::now() - Duration::seconds(89);
         assert!(cache
-            .in_failure_backoff("claude", "a@x.com", base, cap)
+            .in_failure_backoff("alpha", "a@x.com", base, cap)
             .is_some());
 
-        cache.failures.get_mut("claude::a@x.com").unwrap().failed_at =
+        cache.failures.get_mut("alpha::a@x.com").unwrap().failed_at =
             Utc::now() - Duration::seconds(91);
         assert!(cache
-            .in_failure_backoff("claude", "a@x.com", base, cap)
+            .in_failure_backoff("alpha", "a@x.com", base, cap)
             .is_none());
     }
 
     #[test]
     fn auth_failure_drops_success_cache_and_skips_fresh() {
         let mut cache = QuotaCache::default();
-        cache.set("cursor", "auth0|dead", vec![sample_quota()]);
+        cache.set("gamma", "auth0|dead", vec![sample_quota()]);
         cache.record_failure(
-            "cursor",
+            "gamma",
             "auth0|dead",
-            "re-login required for cursor:auth0|dead; stored credentials belong to another Cursor account",
+            "re-login required for gamma:auth0|dead; stored credentials belong to another Gamma account",
         );
-        assert!(cache.get("cursor", "auth0|dead").is_none());
+        assert!(cache.get("gamma", "auth0|dead").is_none());
         assert!(cache
-            .fresh("cursor", "auth0|dead", std::time::Duration::from_secs(90))
+            .fresh("gamma", "auth0|dead", std::time::Duration::from_secs(90))
             .is_none());
     }
 
     #[test]
     fn remove_clears_success_and_failure_entries() {
         let mut cache = QuotaCache::default();
-        cache.set("cursor", "auth0|gone", vec![sample_quota()]);
-        cache.record_failure("cursor", "auth0|gone", "429 rate limited");
-        cache.remove("cursor", "auth0|gone");
-        assert!(cache.get("cursor", "auth0|gone").is_none());
+        cache.set("gamma", "auth0|gone", vec![sample_quota()]);
+        cache.record_failure("gamma", "auth0|gone", "429 rate limited");
+        cache.remove("gamma", "auth0|gone");
+        assert!(cache.get("gamma", "auth0|gone").is_none());
         assert!(cache
             .in_failure_backoff(
-                "cursor",
+                "gamma",
                 "auth0|gone",
                 std::time::Duration::from_secs(90),
                 std::time::Duration::from_secs(900)
@@ -376,13 +376,13 @@ mod tests {
     #[test]
     fn fresh_rejects_stale_entry() {
         let mut cache = QuotaCache::default();
-        cache.set("claude", "a@x.com", vec![sample_quota()]);
+        cache.set("alpha", "a@x.com", vec![sample_quota()]);
         // 手动把 cached_at 拨到 5 分钟前 → 超过 90s 窗口,不新鲜。
-        if let Some(entry) = cache.entries.get_mut("claude::a@x.com") {
+        if let Some(entry) = cache.entries.get_mut("alpha::a@x.com") {
             entry.cached_at = Utc::now() - Duration::minutes(5);
         }
         assert!(cache
-            .fresh("claude", "a@x.com", std::time::Duration::from_secs(90))
+            .fresh("alpha", "a@x.com", std::time::Duration::from_secs(90))
             .is_none());
     }
 }

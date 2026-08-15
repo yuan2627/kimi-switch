@@ -6,7 +6,7 @@
 //!
 //! 命名约定：
 //! - service: `kimi-switch`
-//! - key:     `{provider_id}:{account_id}:{field}`，例如 `claude:alice@example.com:access_token`
+//! - key:     `{provider_id}:{account_id}:{field}`，例如 `alpha:alice@example.com:access_token`
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -240,57 +240,57 @@ mod tests {
     fn set_get_delete_roundtrip() {
         let (_dir, store) = temp_store();
         assert_eq!(
-            store.get("claude", "a@x.com", "credentials_json").unwrap(),
+            store.get("alpha", "a@x.com", "credentials_json").unwrap(),
             None
         );
 
         store
-            .set("claude", "a@x.com", "credentials_json", "{\"t\":1}")
+            .set("alpha", "a@x.com", "credentials_json", "{\"t\":1}")
             .unwrap();
         assert_eq!(
-            store.get("claude", "a@x.com", "credentials_json").unwrap(),
+            store.get("alpha", "a@x.com", "credentials_json").unwrap(),
             Some("{\"t\":1}".to_string())
         );
 
         // 覆盖写。
         store
-            .set("claude", "a@x.com", "credentials_json", "{\"t\":2}")
+            .set("alpha", "a@x.com", "credentials_json", "{\"t\":2}")
             .unwrap();
         assert_eq!(
-            store.get("claude", "a@x.com", "credentials_json").unwrap(),
+            store.get("alpha", "a@x.com", "credentials_json").unwrap(),
             Some("{\"t\":2}".to_string())
         );
 
         store
-            .delete("claude", "a@x.com", "credentials_json")
+            .delete("alpha", "a@x.com", "credentials_json")
             .unwrap();
         assert_eq!(
-            store.get("claude", "a@x.com", "credentials_json").unwrap(),
+            store.get("alpha", "a@x.com", "credentials_json").unwrap(),
             None
         );
         // 删不存在的项幂等。
         store
-            .delete("claude", "a@x.com", "credentials_json")
+            .delete("alpha", "a@x.com", "credentials_json")
             .unwrap();
     }
 
     #[test]
     fn keys_are_namespaced_by_provider_account_field() {
         let (_dir, store) = temp_store();
-        store.set("claude", "a@x.com", "f", "claude-val").unwrap();
-        store.set("codex", "a@x.com", "f", "codex-val").unwrap();
-        store.set("claude", "b@x.com", "f", "other-acct").unwrap();
+        store.set("alpha", "a@x.com", "f", "alpha-val").unwrap();
+        store.set("beta", "a@x.com", "f", "beta-val").unwrap();
+        store.set("alpha", "b@x.com", "f", "other-acct").unwrap();
 
         assert_eq!(
-            store.get("claude", "a@x.com", "f").unwrap(),
-            Some("claude-val".to_string())
+            store.get("alpha", "a@x.com", "f").unwrap(),
+            Some("alpha-val".to_string())
         );
         assert_eq!(
-            store.get("codex", "a@x.com", "f").unwrap(),
-            Some("codex-val".to_string())
+            store.get("beta", "a@x.com", "f").unwrap(),
+            Some("beta-val".to_string())
         );
         assert_eq!(
-            store.get("claude", "b@x.com", "f").unwrap(),
+            store.get("alpha", "b@x.com", "f").unwrap(),
             Some("other-acct".to_string())
         );
     }
@@ -300,7 +300,7 @@ mod tests {
     fn credentials_file_is_owner_only() {
         use std::os::unix::fs::PermissionsExt;
         let (_dir, store) = temp_store();
-        store.set("claude", "a@x.com", "f", "secret").unwrap();
+        store.set("alpha", "a@x.com", "f", "secret").unwrap();
         let mode = std::fs::metadata(&store.path).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o600, "credentials file must be 0600");
     }

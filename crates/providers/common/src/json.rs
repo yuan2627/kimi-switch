@@ -1,4 +1,4 @@
-//! 半结构化凭证 JSON 的宽松字段抽取。Codex/Kimi 的 blob 结构各异，只按 key 递归找。
+//! 半结构化凭证 JSON 的宽松字段抽取。Beta/Kimi 的 blob 结构各异，只按 key 递归找。
 
 /// 在任意嵌套 JSON 里递归查找第一个名为 `key` 的非空字符串值。
 pub fn extract_token(raw: &str, key: &str) -> Option<String> {

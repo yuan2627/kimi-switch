@@ -40,7 +40,7 @@ pub struct Settings {
     pub quota: Quota,
     pub token: Token,
     pub daemon: Daemon,
-    pub codex: Codex,
+    pub beta: Beta,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -99,8 +99,8 @@ pub struct Daemon {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-pub struct Codex {
-    /// 旧版 Codex 本地 last_usage 缓存允许使用的最大年龄。仅作字段漂移兜底。
+pub struct Beta {
+    /// 旧版 Beta 本地 last_usage 缓存允许使用的最大年龄。仅作字段漂移兜底。
     pub usage_cache_max_age_ms: i64,
 }
 
@@ -147,10 +147,10 @@ impl Default for Daemon {
     }
 }
 
-impl Default for Codex {
+impl Default for Beta {
     fn default() -> Self {
         Self {
-            usage_cache_max_age_ms: defaults::CODEX_USAGE_CACHE_MAX_AGE_MS,
+            usage_cache_max_age_ms: defaults::BETA_USAGE_CACHE_MAX_AGE_MS,
         }
     }
 }

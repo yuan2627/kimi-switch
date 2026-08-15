@@ -1,11 +1,11 @@
 //! 文件型 provider 的 provider 无关机制。差异点见 [`crate::FileBlobRuntime`]。
 //!
-//! 关键约束（与 `crates/providers/codex/src/lib.rs` 保持一致）：
+//! 关键约束（与 `crates/providers/beta/src/lib.rs` 保持一致）：
 //! - `activate` 不依赖网络；切换 = flock → snapshot 旧文件 → 原子写新 blob → 任一步失败回滚。
 //! - `capture_live_into_store`（覆盖 live 前把 live 凭证回灌进 owner 账号 store）必须放在
 //!   `spawn_blocking` 内部执行，不能用 `block_in_place`：本引擎的 activate 调用方既可能运行在
 //!   多线程 runtime（cli/daemon）也可能是 current-thread runtime（测试），`block_in_place` 在
-//!   后者会直接 panic。Codex 现有实现把 capture 调用放进 spawn_blocking 正是为了避开这个问题，
+//!   后者会直接 panic。Beta 现有实现把 capture 调用放进 spawn_blocking 正是为了避开这个问题，
 //!   本引擎沿用同样的取舍：`runtime`/`store`/`registry` 都以 `Arc` 形式 clone 进同一个
 //!   `spawn_blocking` 闭包。
 
@@ -73,7 +73,7 @@ impl<A: FileBlobRuntime> FileBlobProvider<A> {
             .unwrap_or_else(|_| self.live_path())
     }
 
-    /// 转调 runtime 的额外物化（如 Codex 复制 `config.toml` 进隔离目录）。
+    /// 转调 runtime 的额外物化（如 Beta 复制 `config.toml` 进隔离目录）。
     pub fn materialize_extra_into(&self, env_dir: &Path) {
         self.runtime.materialize_extra(&self.home, env_dir);
     }
@@ -104,7 +104,7 @@ impl<A: FileBlobRuntime> FileBlobProvider<A> {
     }
 
     /// 元数据是否指向给定账号：primary_id/label 命中 account.id 或 account.label 任一值，
-    /// 或跨主键去重键命中（去重键的 extra 字段名由 `dedup_extra_key` 决定，与原始 Codex
+    /// 或跨主键去重键命中（去重键的 extra 字段名由 `dedup_extra_key` 决定，与原始 Beta
     /// 实现的 `auth_metadata_matches_account`/`string_matches_account` 保持完全一致的比较范围）。
     fn metadata_matches(meta: &BlobMetadata, account: &Account, dedup_extra_key: &str) -> bool {
         let id_hit = meta
@@ -324,7 +324,7 @@ impl<A: FileBlobRuntime> FileBlobProvider<A> {
 impl<A: FileBlobRuntime> FileBlobProvider<A> {
     /// 取账号 blob：active 账号优先读 live（并顺手修复 store 副本），parked 读 store，最后 legacy。
     ///
-    /// 错误处理顺序与原始 Codex 实现一致：store 读取失败时不立即冒泡，而是先捕获错误、
+    /// 错误处理顺序与原始 Beta 实现一致：store 读取失败时不立即冒泡，而是先捕获错误、
     /// 继续尝试 `recover_legacy`；只有 legacy 也拿不到时才把原始 store 错误抛出去。这样即使
     /// keyring 后端本身故障，仍有机会从 legacy 布局恢复凭证。
     pub fn raw_blob_for_account(&self, account: &Account) -> Result<String> {
@@ -480,7 +480,7 @@ impl<A: FileBlobRuntime> Provider for FileBlobProvider<A> {
     }
 
     async fn activate(&self, id: &AccountId) -> Result<()> {
-        // 阶段 1：异步预处理（仅查 registry + store，无网络调用），与 Codex 现有实现一致。
+        // 阶段 1：异步预处理（仅查 registry + store，无网络调用），与 Beta 现有实现一致。
         let account = self.require_account(id)?;
         let target_raw = self.raw_blob_for_account(&account)?;
 
@@ -611,7 +611,7 @@ mod tests {
         refresh_calls: AtomicUsize,
         last_access_token: Mutex<Option<String>>,
         legacy_blob: Option<String>,
-        /// 默认 "dedup_key"；部分测试覆盖成非默认名，模拟 Codex 把去重键落在
+        /// 默认 "dedup_key"；部分测试覆盖成非默认名，模拟 Beta 把去重键落在
         /// 一个迁移前就存在、不叫 "dedup_key" 的字段名下。
         dedup_extra_key: &'static str,
     }
@@ -669,7 +669,7 @@ mod tests {
             BlobMetadata {
                 primary_id: v.get("uid").and_then(|x| x.as_str()).map(String::from),
                 // "label" 字段独立可控，缺省时回退到 uid（沿用既有测试的默认行为）；
-                // "dedup" 字段模拟去重键（如 Codex 的 chatgpt_account_id）。
+                // "dedup" 字段模拟去重键（如 Beta 的 chatgpt_account_id）。
                 label: v
                     .get("label")
                     .and_then(|x| x.as_str())
@@ -818,10 +818,10 @@ mod tests {
         assert!(p.test_store_get("unmanaged").is_none());
     }
 
-    // --- Finding 1 回归：账号匹配不应比迁移前的 Codex 实现窄 ---
+    // --- Finding 1 回归：账号匹配不应比迁移前的 Beta 实现窄 ---
 
     /// 回归测试：迁移前已存在的账号（`extra` 只有旧键名 "chatgpt_account_id"，没有通用
-    /// "dedup_key"）在 primary_id 发生轮换（如 Codex account_key 轮换）后，
+    /// "dedup_key"）在 primary_id 发生轮换（如 Beta account_key 轮换）后，
     /// capture-on-leave 仍必须能靠去重键（用 runtime 声明的 extra 键名读取）找到 owner，
     /// 否则该账号的 store 副本会停留在旧 refresh token 上，导致下次切回后报
     /// "refresh token already used"。

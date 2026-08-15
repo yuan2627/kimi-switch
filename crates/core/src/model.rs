@@ -121,15 +121,15 @@ impl std::str::FromStr for BillingKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum QuotaWindow {
-    /// Claude 的 5 小时窗口。
+    /// Alpha 的 5 小时窗口。
     FiveHour,
-    /// Claude 的 7 天窗口。
+    /// Alpha 的 7 天窗口。
     SevenDay,
-    /// 月度窗口（Codex 等）。
+    /// 月度窗口（Beta 等）。
     Month,
-    /// Cursor 官方模型用量。
+    /// Gamma 官方模型用量。
     FirstPartyModels,
-    /// Cursor API 用量。
+    /// Gamma API 用量。
     Api,
     /// 其他自定义窗口。
     Custom,
@@ -167,7 +167,7 @@ impl QuotaStatus {
     }
 }
 
-/// 单个窗口的额度快照。一个账号可能同时存在多个窗口（如 Claude 同时给 5h 与 7d）。
+/// 单个窗口的额度快照。一个账号可能同时存在多个窗口（如 Alpha 同时给 5h 与 7d）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Quota {
     pub provider: String,
@@ -205,7 +205,7 @@ impl Quota {
 /// Provider 在 `client_targets()` 中声明，切换时由统一的 FileSyncer 处理。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClientTarget {
-    /// 客户端标识，例如 `codex_cli` / `codex_vscode` / `claude_cli`。
+    /// 客户端标识，例如 `beta_cli` / `beta_vscode` / `alpha_cli`。
     pub id: String,
     /// 人类可读名称，用于 doctor / 日志输出。
     pub display_name: String,

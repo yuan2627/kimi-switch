@@ -111,10 +111,10 @@ mod tests {
     fn append_creates_file_and_writes_jsonl() {
         let tmp = tempfile::tempdir().unwrap();
         let log = AuditLog::new(tmp.path().join("audit.log"));
-        log.append(AuditEvent::ok("activate", "claude", Some("alice")));
+        log.append(AuditEvent::ok("activate", "alpha", Some("alice")));
         log.append(AuditEvent::err(
             "refresh",
-            "claude",
+            "alpha",
             Some("bob"),
             "refresh endpoint 400",
         ));

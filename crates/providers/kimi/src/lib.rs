@@ -56,7 +56,7 @@ impl FileBlobRuntime for KimiRuntime {
 /// 便捷别名：Kimi Provider = 文件型引擎 + Kimi adapter。
 pub type KimiProvider = FileBlobProvider<KimiRuntime>;
 
-/// 构造 KimiProvider（与 CodexProvider/ClaudeProvider 的 `::new` 调用面一致）。
+/// 构造 KimiProvider（与 BetaProvider/AlphaProvider 的 `::new` 调用面一致）。
 pub fn new(store: Arc<dyn CredentialStore>, registry: Arc<AccountRegistry>) -> KimiProvider {
     FileBlobProvider::new(KimiRuntime, store, registry)
 }

@@ -3,7 +3,7 @@
 //! 文件结构（示例）：
 //! ```toml
 //! [[accounts]]
-//! provider = "claude"
+//! provider = "alpha"
 //! id = "alice@example.com"
 //! label = "alice"
 //! active = true
@@ -126,7 +126,7 @@ impl AccountRegistry {
     /// - `Ok(None)`：无任何账号匹配该 id。
     /// - `Err(Error::Other(_))`：多于一个 provider 持有同 id（应让用户用 `<provider>/<id>` 显式定位）。
     ///
-    /// 也支持 `<provider>/<id>` 显式前缀形式：例如 `claude/alice@x` 直接锁定 provider，
+    /// 也支持 `<provider>/<id>` 显式前缀形式：例如 `alpha/alice@x` 直接锁定 provider，
     /// 绕过歧义检测。
     pub fn find_unique(&self, id_or_qualified: &str) -> Result<Option<Account>> {
         // 显式 provider/id 前缀。
@@ -257,22 +257,22 @@ mod tests {
     fn upsert_then_load_roundtrip() {
         let tmp = tempfile::tempdir().unwrap();
         let reg = AccountRegistry::new(tmp.path().join("registry.toml"));
-        reg.upsert(make_account("claude", "a")).unwrap();
-        reg.upsert(make_account("claude", "b")).unwrap();
-        reg.upsert(make_account("codex", "c")).unwrap();
+        reg.upsert(make_account("alpha", "a")).unwrap();
+        reg.upsert(make_account("alpha", "b")).unwrap();
+        reg.upsert(make_account("beta", "c")).unwrap();
 
         let all = reg.load().unwrap();
         assert_eq!(all.len(), 3);
 
-        let claudes = reg.list_by_provider("claude").unwrap();
-        assert_eq!(claudes.len(), 2);
+        let alphas = reg.list_by_provider("alpha").unwrap();
+        assert_eq!(alphas.len(), 2);
     }
 
     #[test]
     fn save_strips_json_nulls_from_extra() {
         let tmp = tempfile::tempdir().unwrap();
         let reg = AccountRegistry::new(tmp.path().join("registry.toml"));
-        let mut account = make_account("claude", "a");
+        let mut account = make_account("alpha", "a");
         account.extra.insert(
             "metadata".into(),
             serde_json::json!({
@@ -296,11 +296,11 @@ mod tests {
     fn find_unique_returns_some_when_single_match() {
         let tmp = tempfile::tempdir().unwrap();
         let reg = AccountRegistry::new(tmp.path().join("registry.toml"));
-        reg.upsert(make_account("claude", "alice")).unwrap();
-        reg.upsert(make_account("codex", "bob")).unwrap();
+        reg.upsert(make_account("alpha", "alice")).unwrap();
+        reg.upsert(make_account("beta", "bob")).unwrap();
 
         let a = reg.find_unique("alice").unwrap().unwrap();
-        assert_eq!(a.provider, "claude");
+        assert_eq!(a.provider, "alpha");
     }
 
     #[test]
@@ -308,7 +308,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let reg = AccountRegistry::new(tmp.path().join("registry.toml"));
         reg.upsert(make_labeled_account(
-            "codex",
+            "beta",
             "user-long-key",
             "alice@example.com",
         ))
@@ -317,7 +317,7 @@ mod tests {
         let a = reg.find_unique("alice@example.com").unwrap().unwrap();
         assert_eq!(a.id.0, "user-long-key");
 
-        let qualified = reg.find_unique("codex/alice@example.com").unwrap().unwrap();
+        let qualified = reg.find_unique("beta/alice@example.com").unwrap().unwrap();
         assert_eq!(qualified.id.0, "user-long-key");
     }
 
@@ -325,8 +325,8 @@ mod tests {
     fn find_unique_returns_err_when_ambiguous() {
         let tmp = tempfile::tempdir().unwrap();
         let reg = AccountRegistry::new(tmp.path().join("registry.toml"));
-        reg.upsert(make_account("claude", "alice")).unwrap();
-        reg.upsert(make_account("codex", "alice")).unwrap();
+        reg.upsert(make_account("alpha", "alice")).unwrap();
+        reg.upsert(make_account("beta", "alice")).unwrap();
 
         let err = reg.find_unique("alice").unwrap_err().to_string();
         assert!(err.contains("ambiguous"), "{err}");
@@ -336,20 +336,20 @@ mod tests {
     fn find_unique_qualified_prefix_resolves() {
         let tmp = tempfile::tempdir().unwrap();
         let reg = AccountRegistry::new(tmp.path().join("registry.toml"));
-        reg.upsert(make_account("claude", "alice")).unwrap();
-        reg.upsert(make_account("codex", "alice")).unwrap();
+        reg.upsert(make_account("alpha", "alice")).unwrap();
+        reg.upsert(make_account("beta", "alice")).unwrap();
 
-        let a = reg.find_unique("codex/alice").unwrap().unwrap();
-        assert_eq!(a.provider, "codex");
+        let a = reg.find_unique("beta/alice").unwrap().unwrap();
+        assert_eq!(a.provider, "beta");
     }
 
     #[test]
     fn set_active_marks_exactly_one() {
         let tmp = tempfile::tempdir().unwrap();
         let reg = AccountRegistry::new(tmp.path().join("registry.toml"));
-        reg.upsert(make_account("claude", "a")).unwrap();
-        reg.upsert(make_account("claude", "b")).unwrap();
-        reg.set_active("claude", &AccountId("b".into())).unwrap();
+        reg.upsert(make_account("alpha", "a")).unwrap();
+        reg.upsert(make_account("alpha", "b")).unwrap();
+        reg.set_active("alpha", &AccountId("b".into())).unwrap();
 
         let all = reg.load().unwrap();
         let actives: Vec<_> = all.iter().filter(|a| a.active).collect();

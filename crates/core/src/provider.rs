@@ -1,4 +1,4 @@
-//! Provider 抽象。每个订阅服务（Codex、Claude、…）实现一个 Provider，
+//! Provider 抽象。每个订阅服务（Beta、Alpha、…）实现一个 Provider，
 //! 通过 [`crate::registry::ProviderRegistry`] 注册到 CLI / daemon。
 
 use crate::error::Result;
@@ -13,7 +13,7 @@ use async_trait::async_trait;
 /// - `activate` 必须保证多客户端的原子性（失败回滚），由实现内部加文件锁。
 #[async_trait]
 pub trait Provider: Send + Sync {
-    /// Provider 标识，例如 "codex" / "claude"。CLI 命令里会用到。
+    /// Provider 标识，例如 "beta" / "alpha"。CLI 命令里会用到。
     fn id(&self) -> &'static str;
 
     /// 人类可读名称。
@@ -28,7 +28,7 @@ pub trait Provider: Send + Sync {
     /// 把指定账号切为激活态，并同步所有 `client_targets` 的本地文件。
     async fn activate(&self, id: &AccountId) -> Result<()>;
 
-    /// 查询某账号的额度。可能返回多窗口（例如 Claude 的 5h + 7d）。
+    /// 查询某账号的额度。可能返回多窗口（例如 Alpha 的 5h + 7d）。
     /// 实现允许返回 `Vec` 为空表示"暂无可查"，但应优先返回 status=Unknown 的占位。
     async fn query_quota(&self, id: &AccountId) -> Result<Vec<Quota>>;
 }

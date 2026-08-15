@@ -10,11 +10,11 @@ use kimi_switch_core::{Account, Quota};
 /// 注意：写进 `extra` 的 `Option` 值不要保留 null（引擎只写 `Some`）。
 #[derive(Debug, Clone, Default)]
 pub struct BlobMetadata {
-    /// account 主键候选（如 Codex account_key / Kimi user_id）。
+    /// account 主键候选（如 Beta account_key / Kimi user_id）。
     pub primary_id: Option<String>,
     /// 展示 label（如 email / user_id）。
     pub label: Option<String>,
-    /// 跨主键去重用的稳定键（如 Codex chatgpt_account_id）；无则 None。
+    /// 跨主键去重用的稳定键（如 Beta chatgpt_account_id）；无则 None。
     pub dedup_key: Option<String>,
     /// 额外落进 registry.toml `extra` 的字段（provider 私有，如会员档/额度用 header）。
     pub extra: serde_json::Map<String, serde_json::Value>,
@@ -23,9 +23,9 @@ pub struct BlobMetadata {
 /// 隔离运行所需的差异点。
 #[derive(Debug, Clone)]
 pub struct IsolationSpec {
-    /// 隔离环境变量名（Codex `CODEX_HOME` / Kimi `KIMI_CODE_HOME`）。
+    /// 隔离环境变量名（Beta `BETA_HOME` / Kimi `KIMI_CODE_HOME`）。
     pub env_var: &'static str,
-    /// 原生 CLI 可执行名（`codex` / `kimi`）。
+    /// 原生 CLI 可执行名（`beta` / `kimi`）。
     pub native_cli: &'static str,
 }
 
@@ -42,16 +42,16 @@ pub enum RefreshOutcome {
 /// 每个文件型 runtime 的差异点契约。机制（切换/回滚/回灌/隔离）在引擎里，不在这里。
 #[async_trait]
 pub trait FileBlobRuntime: Send + Sync + 'static {
-    /// provider 标识，如 "codex" / "kimi"。
+    /// provider 标识，如 "beta" / "kimi"。
     fn id(&self) -> &'static str;
     /// 人类可读名称。
     fn display_name(&self) -> &'static str;
-    /// store 里存 blob 的字段名。默认 "blob"；Codex 为兼容历史数据返回 "auth_json"。
+    /// store 里存 blob 的字段名。默认 "blob"；Beta 为兼容历史数据返回 "auth_json"。
     fn store_field(&self) -> &'static str {
         "blob"
     }
     /// registry.toml `extra` 里存跨主键去重键的字段名。默认 "dedup_key"；
-    /// Codex 覆盖为 "chatgpt_account_id" 以兼容此次迁移前已存在的账号数据
+    /// Beta 覆盖为 "chatgpt_account_id" 以兼容此次迁移前已存在的账号数据
     /// （迁移前的 `registry.toml` 只有这个键名，没有通用的 "dedup_key"）。
     fn dedup_extra_key(&self) -> &'static str {
         "dedup_key"

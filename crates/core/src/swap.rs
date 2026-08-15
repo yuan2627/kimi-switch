@@ -83,7 +83,7 @@ pub struct SwapTarget<'a> {
 ///
 /// 参数：
 /// - `provider_id`：用于快照目录命名（`<provider>-<ts>`）。
-/// - `provider_home`：放锁文件的目录（如 `~/.claude` / `~/.codex`）。
+/// - `provider_home`：放锁文件的目录（如 `~/.alpha` / `~/.beta`）。
 /// - `targets`：要原子写入的文件列表。
 /// - `commit`：所有文件写入成功后执行的最后一步（典型：把 registry 标 active）。
 ///
