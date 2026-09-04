@@ -19,8 +19,8 @@ use eframe::egui;
 
 use kimi_switch_core::paths::AppPaths;
 use kimi_switch_core::{
-    AccountId, AccountRegistry, AuditEvent, AuditLog, CredentialStore, FileStore, KeyringStore,
-    Provider, Quota, QuotaCache, QuotaWindow, RemovedAccounts,
+    Account, AccountId, AccountRegistry, AuditEvent, AuditLog, CredentialStore, FileStore,
+    KeyringStore, Provider, Quota, QuotaCache, QuotaWindow, RemovedAccounts,
 };
 use kimi_switch_kimi::{device_flow, KimiProvider};
 
@@ -247,6 +247,8 @@ fn apply_theme(ctx: &egui::Context, dark: bool) {
 enum Request {
     /// 重新拉额度并刷新列表。
     Refresh,
+    /// 只刷新单个账号的额度。
+    RefreshOne(String),
     /// 添加账号：设备码授权（先取链接给用户，再轮询等授权完成）。
     StartDeviceAuth(Arc<AtomicBool>),
     /// 导入当前本机 Kimi Code 已登录账号（等价 `kimi-switch login kimi`）。
@@ -291,6 +293,11 @@ enum Response {
     List {
         rows: Vec<AccountRow>,
         message: Option<(String, Tone)>,
+    },
+    /// 单账号刷新完成：只更新这一行，不动其它账号。
+    RowUpdate {
+        row: AccountRow,
+        message: (String, Tone),
     },
     /// 设备码已拿到：弹授权对话框展示链接与授权码。
     AuthLink { url: String, user_code: String },
@@ -357,31 +364,41 @@ impl Backend {
     fn load_rows(&self) -> Vec<AccountRow> {
         let mut accounts = self.registry.list_by_provider("kimi").unwrap_or_default();
         accounts.sort_by_key(|a| !a.active);
-        accounts
-            .into_iter()
-            .map(|account| {
-                let (membership, quotas, error) = match self.runtime.block_on(
-                    kimi_switch_core::query_quota_with_retry(self.kimi.as_ref(), &account.id),
-                ) {
-                    Ok(quotas) => {
-                        let membership = quotas
-                            .iter()
-                            .find_map(|q| q.note.as_deref())
-                            .map(prettify_membership);
-                        (membership, quota_views(&quotas), None)
-                    }
-                    Err(e) => (None, Vec::new(), Some(compact_error(&e.to_string()))),
-                };
-                AccountRow {
-                    label: account.label.clone(),
-                    id: account.id.0,
-                    active: account.active,
-                    membership,
-                    quotas,
-                    error,
-                }
-            })
-            .collect()
+        accounts.iter().map(|a| self.row_for(a)).collect()
+    }
+
+    /// 只刷新单个账号的额度，返回更新后的行。
+    fn load_one_row(&self, id: &str) -> Option<AccountRow> {
+        let id = AccountId(id.to_string());
+        let account = self.registry.find("kimi", &id).ok()??;
+        Some(self.row_for(&account))
+    }
+
+    /// 查询单个账号额度并组装行数据（会员等级挂在 quota note 上）。
+    fn row_for(&self, account: &Account) -> AccountRow {
+        let (membership, quotas, error) = match self
+            .runtime
+            .block_on(kimi_switch_core::query_quota_with_retry(
+                self.kimi.as_ref(),
+                &account.id,
+            )) {
+            Ok(quotas) => {
+                let membership = quotas
+                    .iter()
+                    .find_map(|q| q.note.as_deref())
+                    .map(prettify_membership);
+                (membership, quota_views(&quotas), None)
+            }
+            Err(e) => (None, Vec::new(), Some(compact_error(&e.to_string()))),
+        };
+        AccountRow {
+            label: account.label.clone(),
+            id: account.id.0.clone(),
+            active: account.active,
+            membership,
+            quotas,
+            error,
+        }
     }
 
     /// 导入当前本机已登录账号，返回状态消息。
@@ -474,8 +491,28 @@ fn worker_main(ctx: egui::Context, rx: Receiver<Request>, tx: Sender<Response>) 
 
     send_list(&backend, None);
     while let Ok(request) = rx.recv() {
+        // 单账号刷新：只查这一个账号，单独回发行更新，不重查整个列表。
+        if let Request::RefreshOne(id) = &request {
+            let message = match backend.load_one_row(id) {
+                Some(row) => {
+                    let done = format!("已刷新 {}", row.label);
+                    let _ = tx.send(Response::RowUpdate {
+                        row,
+                        message: (done, Tone::Ok),
+                    });
+                    ctx.request_repaint();
+                }
+                None => {
+                    let _ = tx.send(Response::Fatal(format!("账号 {id} 不存在")));
+                    ctx.request_repaint();
+                }
+            };
+            let _ = message;
+            continue;
+        }
         let message = match request {
             Request::Refresh => None,
+            Request::RefreshOne(_) => unreachable!(),
             Request::Import => match backend.import() {
                 Ok(m) => Some((m, Tone::Ok)),
                 Err(e) => Some((format!("{e:#}"), Tone::Err)),
@@ -543,13 +580,24 @@ fn device_auth_flow(
     }
 }
 
-/// 把接口的会员等级（如 `LEVEL_INTERMEDIATE`）美化成展示文本（`Intermediate`）。
+/// 把接口的会员等级（如 `LEVEL_INTERMEDIATE`）映射为「Kimi 套餐名（接口等级）」。
+/// 已知对照：Intermediate = Allegretto 专业优选（199 档）、Advanced = Allegro 全能尊享（699 档）。
+/// 低档位（Andante / Moderato）的接口等级尚未确认，未知等级保持原样美化展示。
 fn prettify_membership(level: &str) -> String {
     let stripped = level.strip_prefix("LEVEL_").unwrap_or(level);
     let mut chars = stripped.chars();
-    match chars.next() {
+    let pretty = match chars.next() {
         Some(first) => first.to_uppercase().collect::<String>() + &chars.as_str().to_lowercase(),
         None => stripped.to_string(),
+    };
+    let plan = match stripped.to_uppercase().as_str() {
+        "INTERMEDIATE" => Some("Allegretto 专业优选"),
+        "ADVANCED" => Some("Allegro 全能尊享"),
+        _ => None,
+    };
+    match plan {
+        Some(plan) => format!("{plan}（{pretty}）"),
+        None => pretty,
     }
 }
 
@@ -680,6 +728,16 @@ impl eframe::App for GuiApp {
                         self.status = String::new();
                     }
                 }
+                Response::RowUpdate { row, message } => {
+                    // 单账号刷新：就地替换这一行，保持列表顺序与其它行数据不变。
+                    if let Some(existing) = self.rows.iter_mut().find(|r| r.id == row.id) {
+                        *existing = row;
+                    }
+                    self.busy = false;
+                    self.loaded = true;
+                    self.status = message.0;
+                    self.status_tone = message.1;
+                }
                 Response::AuthLink { url, user_code } => {
                     // 授权对话框由 StartDeviceAuth 发起时带上 cancel 标志，
                     // 这里只补充链接内容；cancel 从现有对话框保留或新建。
@@ -786,6 +844,7 @@ impl eframe::App for GuiApp {
             let mut swap_id: Option<String> = None;
             let mut delete_id: Option<String> = None;
             let mut rename_id: Option<String> = None;
+            let mut refresh_one_id: Option<String> = None;
             egui::ScrollArea::vertical().show(ui, |ui| {
                 // 额度条文字颜色：深色主题用白字，浅色主题用深灰（否则压在浅色槽上看不清）。
                 let bar_text_color = if self.dark_mode {
@@ -853,6 +912,17 @@ impl eframe::App for GuiApp {
                                             .clicked()
                                         {
                                             rename_id = Some(row.id.clone());
+                                        }
+                                        // 只刷新这一个账号的额度。
+                                        if ui
+                                            .add_enabled(
+                                                !self.busy,
+                                                egui::Button::new("刷新").small(),
+                                            )
+                                            .on_hover_text("只刷新该账号额度")
+                                            .clicked()
+                                        {
+                                            refresh_one_id = Some(row.id.clone());
                                         }
                                         if !row.active
                                             && ui
@@ -926,6 +996,12 @@ impl eframe::App for GuiApp {
             });
             if let Some(id) = swap_id {
                 self.send(Request::Swap(id.clone()), format!("正在切换到 {id}…"));
+            }
+            if let Some(id) = refresh_one_id {
+                self.send(
+                    Request::RefreshOne(id.clone()),
+                    format!("正在刷新 {id} 的额度…"),
+                );
             }
             if let Some(id) = delete_id {
                 self.pending_delete = Some(id);
@@ -1091,5 +1167,33 @@ impl eframe::App for GuiApp {
         if self.busy || self.auth_dialog.is_some() {
             ctx.request_repaint_after(Duration::from_millis(120));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::prettify_membership;
+
+    #[test]
+    fn known_levels_map_to_plan_names() {
+        assert_eq!(
+            prettify_membership("LEVEL_INTERMEDIATE"),
+            "Allegretto 专业优选（Intermediate）"
+        );
+        assert_eq!(
+            prettify_membership("LEVEL_ADVANCED"),
+            "Allegro 全能尊享（Advanced）"
+        );
+        // 不带 LEVEL_ 前缀也能识别
+        assert_eq!(
+            prettify_membership("ADVANCED"),
+            "Allegro 全能尊享（Advanced）"
+        );
+    }
+
+    #[test]
+    fn unknown_levels_fall_back_to_pretty_name() {
+        assert_eq!(prettify_membership("LEVEL_BASIC"), "Basic");
+        assert_eq!(prettify_membership("LEVEL_"), "");
     }
 }
