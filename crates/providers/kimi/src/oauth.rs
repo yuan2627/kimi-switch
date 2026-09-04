@@ -155,27 +155,42 @@ async fn installed_kimi_refresh_lock_protocol() -> Option<RefreshLockProtocol> {
         return *cached;
     }
     let probed = tokio::task::spawn_blocking(|| {
-        Command::new("kimi")
-            .arg("--version")
-            .output()
-            .ok()
-            .filter(|output| output.status.success())
-            .and_then(|output| {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                lock_protocol_from_version_output(&stdout)
-                    .or_else(|| lock_protocol_from_version_output(&stderr))
-            })
-            .and_then(|protocol| {
-                protocol_with_lock_setting(
-                    protocol,
-                    std::env::var("KIMI_DISABLE_OAUTH_LOCK").as_deref() == Ok("1"),
-                )
-            })
+        kimi_version_output().and_then(|output| {
+            lock_protocol_from_version_output(&output)
+        })
+        .and_then(|protocol| {
+            protocol_with_lock_setting(
+                protocol,
+                std::env::var("KIMI_DISABLE_OAUTH_LOCK").as_deref() == Ok("1"),
+            )
+        })
     })
     .await
     .unwrap_or(None);
     *CACHED.get_or_init(|| probed)
+}
+
+/// 探测 kimi 客户端版本输出：先查 PATH，再回落到 `<home>/bin/kimi(.exe)`。
+/// GUI 从桌面/开始菜单启动时 PATH 可能与终端不同，回落保证探测不落空。
+fn kimi_version_output() -> Option<String> {
+    let bin_dir = paths::kimi_home().join("bin");
+    let mut candidates = vec![PathBuf::from("kimi")];
+    if cfg!(windows) {
+        candidates.push(bin_dir.join("kimi.exe"));
+    }
+    candidates.push(bin_dir.join("kimi"));
+    for candidate in candidates {
+        let Ok(output) = Command::new(&candidate).arg("--version").output() else {
+            continue;
+        };
+        if !output.status.success() {
+            continue;
+        }
+        let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
+        text.push_str(&String::from_utf8_lossy(&output.stderr));
+        return Some(text);
+    }
+    None
 }
 
 fn protocol_with_lock_setting(
@@ -207,10 +222,8 @@ fn format_version((major, minor, patch): (u64, u64, u64)) -> String {
 
 fn lock_protocol_for_version(version: (u64, u64, u64)) -> Option<RefreshLockProtocol> {
     if version.0 == 0 {
-        #[cfg(not(windows))]
+        // TypeScript 客户端的 proper-lockfile 目录锁在 Windows 同样可用（目录创建/删除语义一致）。
         return Some(RefreshLockProtocol::TypeScriptDirectory);
-        #[cfg(windows)]
-        return None;
     }
     (version.0 == 1 && version >= MIN_COORDINATED_REFRESH_VERSION)
         .then_some(RefreshLockProtocol::PythonFile)
@@ -627,9 +640,7 @@ fn refresh_fingerprint(refresh_token: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(not(windows))]
     use chrono::Utc;
-    #[cfg(not(windows))]
     use kimi_switch_core::AccountId;
 
     #[test]
@@ -646,19 +657,19 @@ mod tests {
         assert_eq!(lock_protocol_for_version((1, 30, 9)), None);
         assert_eq!(lock_protocol_for_version((2, 0, 0)), None);
         assert_eq!(lock_protocol_for_version((3, 1, 0)), None);
-        #[cfg(not(windows))]
-        {
-            assert_eq!(
-                lock_protocol_from_version_output("0.28.1"),
-                Some(RefreshLockProtocol::TypeScriptDirectory)
-            );
-            assert_eq!(
-                protocol_with_lock_setting(RefreshLockProtocol::TypeScriptDirectory, true),
-                None
-            );
-        }
-        #[cfg(windows)]
-        assert_eq!(lock_protocol_for_version((0, 28, 1)), None);
+        // TypeScript 目录锁全平台可用（含 Windows）。
+        assert_eq!(
+            lock_protocol_from_version_output("0.28.1"),
+            Some(RefreshLockProtocol::TypeScriptDirectory)
+        );
+        assert_eq!(
+            protocol_with_lock_setting(RefreshLockProtocol::TypeScriptDirectory, true),
+            None
+        );
+        assert_eq!(
+            lock_protocol_for_version((0, 28, 1)),
+            Some(RefreshLockProtocol::TypeScriptDirectory)
+        );
     }
 
     #[cfg(not(windows))]
@@ -720,14 +731,18 @@ mod tests {
         }
     }
 
-    #[cfg(windows)]
     #[test]
-    fn windows_typescript_client_has_no_active_refresh_lock_protocol() {
-        assert_eq!(lock_protocol_from_version_output("0.28.1"), None);
-        assert_eq!(lock_protocol_for_version((0, 99, 0)), None);
+    fn typescript_client_uses_directory_lock_protocol_on_all_platforms() {
+        assert_eq!(
+            lock_protocol_from_version_output("0.28.1"),
+            Some(RefreshLockProtocol::TypeScriptDirectory)
+        );
+        assert_eq!(
+            lock_protocol_for_version((0, 99, 0)),
+            Some(RefreshLockProtocol::TypeScriptDirectory)
+        );
     }
 
-    #[cfg(not(windows))]
     #[tokio::test]
     async fn waits_for_proper_lock_directory_then_reuses_rotated_credentials() {
         let temporary = tempfile::tempdir().unwrap();
@@ -766,7 +781,6 @@ mod tests {
         assert!(!lock_dir.exists());
     }
 
-    #[cfg(not(windows))]
     #[tokio::test]
     async fn proper_lock_heartbeat_keeps_directory_fresh_beyond_stale_window() {
         let temporary = tempfile::tempdir().unwrap();
@@ -797,7 +811,6 @@ mod tests {
         assert!(!lock_dir.exists());
     }
 
-    #[cfg(not(windows))]
     #[tokio::test]
     async fn stale_proper_lock_is_atomically_reaped_but_fresh_lock_is_not() {
         let stale_home = tempfile::tempdir().unwrap();
@@ -846,7 +859,6 @@ mod tests {
         std::fs::remove_dir(fresh_lock).unwrap();
     }
 
-    #[cfg(not(windows))]
     #[tokio::test]
     async fn dead_refresh_fingerprint_prevents_repeated_http_requests() {
         use crate::test_support::MockServer;
@@ -894,7 +906,6 @@ mod tests {
         }
     }
 
-    #[cfg(not(windows))]
     #[tokio::test]
     async fn cancelling_refresh_releases_proper_lock_and_stops_heartbeat() {
         use std::io::Read;
@@ -942,17 +953,14 @@ mod tests {
         server.join().unwrap();
     }
 
-    #[cfg(not(windows))]
     fn jwt(suffix: &str) -> String {
         format!("header.eyJ1c2VyX2lkIjoidS0xMjMiLCJjbGllbnRfaWQiOiJjLTEifQ.{suffix}")
     }
 
-    #[cfg(not(windows))]
     fn blob(access: &str, refresh: &str) -> String {
         format!(r#"{{"access_token":"{access}","refresh_token":"{refresh}"}}"#)
     }
 
-    #[cfg(not(windows))]
     fn active_account() -> Account {
         Account {
             provider: "kimi".into(),
